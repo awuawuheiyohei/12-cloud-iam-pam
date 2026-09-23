@@ -1,35 +1,23 @@
-"""Cloud IAM/PAM Least Privilege - core"""
-
-import os, re, sqlite3
+"""IAM core utilities"""
+import os
+import re
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
-
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
-DB_PATH = DATA_DIR / "app.db"
+
+from .models.db import DB_PATH, init_db  # noqa: E402
 
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.MiniMax.chat/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "MiniMax-M3")
 
 
-def init_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.commit()
-    return conn
-
-
-def strip_thinking(content: str) -> str:
+def strip_thinking(content):
     content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL)
     content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL)
-    for m in [r"^OK final structure:.*$", r"^OK let me.*$", r"^Actually.*$"]:
-        if match := re.search(m, content, flags=re.MULTILINE):
-            content = content[:match.start()].rstrip() + "\n"
-            break
     return content.strip() + "\n"
 
 
@@ -53,8 +41,4 @@ def call_llm(system_prompt, user_prompt):
     return strip_thinking(resp.json()["choices"][0]["message"]["content"])
 
 
-def load_prompt(name):
-    path = ROOT / "prompts" / name
-    if not path.exists():
-        raise FileNotFoundError("Prompt not found: " + str(path))
-    return path.read_text(encoding="utf-8")
+__all__ = ["ROOT", "DATA_DIR", "DB_PATH", "init_db", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "call_llm"]

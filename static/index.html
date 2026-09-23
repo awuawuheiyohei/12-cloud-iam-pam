@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IAM/PAM Least Privilege</title>
+<style>
+:root {
+  --bg: #0f1419; --panel: #1a2028; --panel2: #232a36; --border: #2f3845;
+  --text: #e6edf3; --text-dim: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d29922; --orange: #f0883e; --red: #f85149;
+  --critical: #f85149; --high: #f0883e; --medium: #d29922; --low: #3fb950;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.55; }
+.topbar { background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  padding: 16px 32px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center; }
+.topbar h1 { font-size: 18px; font-weight: 600; }
+.topbar .meta { font-size: 12px; color: var(--text-dim); }
+.container { padding: 24px 32px; max-width: 1600px; margin: 0 auto; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; }
+.card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.card .value { font-size: 28px; font-weight: 700; margin-top: 8px; }
+.card .sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.card.critical .value { color: var(--critical); }
+.card.warning .value { color: var(--yellow); }
+.card.success .value { color: var(--green); }
+.card.info .value { color: var(--accent); }
+.section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 20px; overflow: hidden; }
+.section .header { padding: 14px 20px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center; }
+.section .body { padding: 16px 20px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table th, table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+table th { color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+table tr:hover td { background: var(--panel2); }
+table td.mono { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.tag.critical { background: rgba(248,81,73,0.15); color: var(--critical); border: 1px solid rgba(248,81,73,0.4); }
+.tag.high { background: rgba(240,136,62,0.15); color: var(--high); border: 1px solid rgba(240,136,62,0.4); }
+.tag.medium { background: rgba(210,153,34,0.15); color: var(--medium); border: 1px solid rgba(210,153,34,0.4); }
+.tag.low { background: rgba(63,185,80,0.15); color: var(--low); border: 1px solid rgba(63,185,80,0.4); }
+.tag.normal { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); padding: 0 20px; background: var(--panel); }
+.tab { padding: 10px 16px; font-size: 13px; cursor: pointer; border: none; background: transparent; color: var(--text-dim); border-bottom: 2px solid transparent; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; padding: 16px 20px; }
+.btn { background: var(--accent); color: #0d1117; border: none; padding: 8px 16px;
+  border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 13px; }
+.btn:hover { background: #79b8ff; }
+.btn.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+.btn.danger { background: var(--critical); color: white; }
+.filter-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.filter-bar select { background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+.empty { color: var(--text-dim); font-style: italic; padding: 12px 0; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>🔐 Cloud IAM/PAM Least Privilege</h1>
+  <div class="meta">
+    <span>Wildcard / MFA / Dormant / UAR / JIT Break-Glass</span>
+    · <a href="/docs" style="color:var(--accent)">API Docs</a>
+    · <a href="/health" style="color:var(--accent)">Health</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="cards">
+    <div class="card critical">
+      <div class="label">Open Findings</div>
+      <div class="value" id="m-findings">—</div>
+      <div class="sub">风险未关闭</div>
+    </div>
+    <div class="card warning">
+      <div class="label">Active Without MFA</div>
+      <div class="value" id="m-nomfa">—</div>
+      <div class="sub">活跃用户无 MFA</div>
+    </div>
+    <div class="card info">
+      <div class="label">UAR Pending</div>
+      <div class="value" id="m-uar">—</div>
+      <div class="sub">经理待审批</div>
+    </div>
+    <div class="card success">
+      <div class="label">JIT Break-Glass</div>
+      <div class="value" id="m-bg">—</div>
+      <div class="sub">ACTIVE / PENDING</div>
+    </div>
+  </div>
+
+  <div class="section" style="padding:0">
+    <div class="tabs">
+      <button class="tab active" data-tab="findings">🚨 风险发现</button>
+      <button class="tab" data-tab="identities">👤 身份清单</button>
+      <button class="tab" data-tab="uar">📝 UAR 审批</button>
+      <button class="tab" data-tab="bg">🚨 Break-Glass</button>
+      <button class="tab" data-tab="report">📊 SOC 2 报告</button>
+    </div>
+
+    <!-- Tab: Findings -->
+    <div class="tab-panel active" data-tab="findings">
+      <div class="body">
+        <div class="filter-bar">
+          <label>类型</label>
+          <select id="f-type"><option value="">All</option>
+            <option>WILDCARD_ADMIN</option><option>PRIVILEGE_ESCALATION</option>
+            <option>NO_MFA</option><option>DORMANT_ACCOUNT</option></select>
+          <label>严重度</label>
+          <select id="f-sev"><option value="">All</option>
+            <option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option></select>
+          <span style="color:var(--text-dim);font-size:11px" id="f-count">—</span>
+        </div>
+        <table id="tbl-findings">
+          <thead>
+            <tr><th>Finding</th><th>Identity</th><th>Type</th>
+              <th>Severity</th><th>Details</th><th>Recommended</th><th>Status</th><th>操作</th></tr>
+          </thead>
+          <tbody><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Identities -->
+    <div class="tab-panel" data-tab="identities">
+      <div class="body">
+        <div class="filter-bar">
+          <label>类型</label>
+          <select id="i-type"><option value="">All</option>
+            <option>USER</option><option>ROLE</option><option>GROUP</option></select>
+          <label>MFA</label>
+          <select id="i-mfa"><option value="">All</option>
+            <option value="1">Enabled</option><option value="0">Disabled</option></select>
+          <span style="color:var(--text-dim);font-size:11px" id="i-count">—</span>
+        </div>
+        <table id="tbl-identities">
+          <thead>
+            <tr><th>Identity</th><th>Name</th><th>Type</th>
+              <th>MFA</th><th>Last Active</th><th>Status</th><th>Manager</th><th>Findings</th></tr>
+          </thead>
+          <tbody><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: UAR -->
+    <div class="tab-panel" data-tab="uar">
+      <div class="body">
+        <div class="filter-bar">
+          <label>Campaign</label>
+          <select id="u-camp"><option value="">All</option></select>
+          <label>状态</label>
+          <select id="u-dec"><option value="">All</option>
+            <option>PENDING</option><option>KEEP</option><option>REVOKE</option><option>MODIFY</option></select>
+          <span style="color:var(--text-dim);font-size:11px" id="u-count">—</span>
+        </div>
+        <table id="tbl-uar">
+          <thead>
+            <tr><th>Decision</th><th>Campaign</th><th>Identity</th>
+              <th>Manager</th><th>Decision</th><th>Justification</th><th>Decided At</th><th>操作</th></tr>
+          </thead>
+          <tbody><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Break-Glass -->
+    <div class="tab-panel" data-tab="bg">
+      <div class="body">
+        <button class="btn secondary" onclick="expireCheck()">🔄 检查过期</button>
+        <div style="margin-top:12px">
+          <table id="tbl-bg">
+            <thead>
+              <tr><th>BG ID</th><th>Identity</th><th>Role</th>
+                <th>Duration</th><th>Reason</th><th>Ticket</th>
+                <th>Approver</th><th>Status</th><th>Expires</th><th>操作</th></tr>
+            </thead>
+            <tbody><tr><td colspan="10" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Report -->
+    <div class="tab-panel" data-tab="report">
+      <div class="body">
+        <button class="btn" onclick="loadReport()">📊 生成 SOC 2 CC6 + ISO 27001 报告</button>
+        <div class="filter-bar" style="margin-top:12px">
+          <button class="btn secondary" onclick="reseed()">🔄 重新 seed (清空重置)</button>
+        </div>
+        <pre id="report-result" class="result-box" style="background:var(--bg);border:1px solid var(--border);padding:12px;border-radius:4px;font-family:'SF Mono',Menlo,monospace;font-size:11px;white-space:pre-wrap;margin-top:12px">点击生成报告</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector(`.tab-panel[data-tab="${btn.dataset.tab}"]`).classList.add('active');
+    if (btn.dataset.tab === 'identities') loadIdentities();
+    if (btn.dataset.tab === 'uar') loadUARCampaigns();
+    if (btn.dataset.tab === 'bg') loadBG();
+  });
+});
+
+async function fetchJSON(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  return await r.json();
+}
+function tag(text, cls) { return `<span class="tag ${cls}">${text}</span>`; }
+function sevTag(s) { return tag(s, s ? s.toLowerCase() : 'normal'); }
+
+async function loadSummary() {
+  try {
+    const s = await fetchJSON('/api/dashboard/summary');
+    document.getElementById('m-findings').textContent = s.findings.open;
+    document.getElementById('m-nomfa').textContent = s.identities.no_mfa_active;
+    document.getElementById('m-uar').textContent = s.uar.pending;
+    document.getElementById('m-bg').textContent = s.break_glass.active + ' / ' + s.break_glass.pending;
+  } catch(e) { console.error(e); }
+}
+
+async function loadFindings() {
+  const type = document.getElementById('f-type').value;
+  const sev = document.getElementById('f-sev').value;
+  const params = new URLSearchParams();
+  if (type) params.set('risk_type', type);
+  if (sev) params.set('severity', sev);
+  try {
+    const d = await fetchJSON('/api/findings?' + params);
+    document.getElementById('f-count').textContent = `${d.count} 条`;
+    const tbody = document.querySelector('#tbl-findings tbody');
+    if (!d.items.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">无</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.items.map(f => {
+      const stMap = {OPEN:'critical', ACCEPTED:'medium', REMEDIATED:'low', SUPPRESSED:'normal'};
+      const actions = f.status === 'OPEN'
+        ? `<button class="btn secondary" onclick="markFinding('${f.finding_id}', 'REMEDIATED')">REMEDIATED</button>
+           <button class="btn secondary" onclick="markFinding('${f.finding_id}', 'ACCEPTED')">ACCEPT</button>
+           <button class="btn danger" onclick="markFinding('${f.finding_id}', 'SUPPRESSED')">SUPPRESS</button>`
+        : `<span style="color:var(--text-dim);font-size:11px">${f.status}</span>`;
+      return `<tr>
+        <td class="mono">${f.finding_id}</td>
+        <td class="mono" style="font-size:11px">${f.identity_name}</td>
+        <td style="font-size:11px">${f.risk_type}</td>
+        <td>${sevTag(f.severity)}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${f.details}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${f.recommended_action || '—'}</td>
+        <td>${tag(f.status, stMap[f.status]||'normal')}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+async function markFinding(fid, status) {
+  try {
+    await fetchJSON(`/api/findings/${fid}/status?status=${status}`, {method:'PATCH'});
+    loadFindings(); loadSummary();
+  } catch(e) { alert('失败: ' + e.message); }
+}
+document.getElementById('f-type').addEventListener('change', loadFindings);
+document.getElementById('f-sev').addEventListener('change', loadFindings);
+
+async function loadIdentities() {
+  const type = document.getElementById('i-type').value;
+  const mfa = document.getElementById('i-mfa').value;
+  const params = new URLSearchParams();
+  if (type) params.set('identity_type', type);
+  if (mfa !== '') params.set('mfa_enabled', mfa);
+  try {
+    const d = await fetchJSON('/api/identities?' + params);
+    document.getElementById('i-count').textContent = `${d.count} 个`;
+    const tbody = document.querySelector('#tbl-identities tbody');
+    if (!d.items.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">无</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.items.map(i => {
+      const mfaTag = i.mfa_enabled ? tag('✓ MFA','low') : tag('✗','critical');
+      const stTag = {ACTIVE:'low', INACTIVE:'medium', TERMINATED:'normal'}[i.status] || 'normal';
+      return `<tr>
+        <td class="mono">${i.identity_id}</td>
+        <td style="font-size:11px">${i.identity_name}</td>
+        <td>${i.identity_type}</td>
+        <td>${mfaTag}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${i.last_active_at || 'never'}</td>
+        <td>${tag(i.status, stTag)}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${i.manager || '—'}</td>
+        <td><a href="#" onclick="viewId('${i.identity_id}');return false;">查看</a></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+async function viewId(id) {
+  const r = await fetchJSON(`/api/identities/${id}`);
+  alert(`${r.identity_name}\n\nFindings:\n${r.findings.map(f=>`- [${f.severity}] ${f.risk_type}: ${f.details}`).join('\n')}`);
+}
+document.getElementById('i-type').addEventListener('change', loadIdentities);
+document.getElementById('i-mfa').addEventListener('change', loadIdentities);
+
+async function loadUARCampaigns() {
+  try {
+    const d = await fetchJSON('/api/uar/campaigns');
+    const sel = document.getElementById('u-camp');
+    sel.innerHTML = '<option value="">All</option>' + d.items.map(c => `<option value="${c.campaign_id}">${c.campaign_id} (${c.progress_pct}% done)</option>`).join('');
+    const decFilter = document.getElementById('u-dec').value;
+    const campFilter = sel.value;
+    const params = new URLSearchParams();
+    if (campFilter) params.set('campaign_id', campFilter);
+    if (decFilter) params.set('decision', decFilter);
+    const d2 = await fetchJSON('/api/uar/decisions?' + params);
+    document.getElementById('u-count').textContent = `${d2.count} 条`;
+    const tbody = document.querySelector('#tbl-uar tbody');
+    if (!d2.items.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">无</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d2.items.map(x => {
+      const dTag = {PENDING:'medium', KEEP:'low', REVOKE:'critical', MODIFY:'high'}[x.decision] || 'normal';
+      const btn = x.decision === 'PENDING'
+        ? `<button class="btn secondary" onclick="decideUAR('${x.decision_id}', 'KEEP')">KEEP</button>
+           <button class="btn danger" onclick="decideUAR('${x.decision_id}', 'REVOKE')">REVOKE</button>
+           <button class="btn" onclick="decideUAR('${x.decision_id}', 'MODIFY')">MODIFY</button>`
+        : `<span style="color:var(--text-dim);font-size:11px">${x.decision}</span>`;
+      return `<tr>
+        <td class="mono">${x.decision_id}</td>
+        <td class="mono" style="font-size:11px">${x.campaign_id}</td>
+        <td style="font-size:11px">${x.identity_name}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${x.manager}</td>
+        <td>${tag(x.decision, dTag)}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${x.justification || '—'}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${x.decided_at || '—'}</td>
+        <td>${btn}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+async function decideUAR(did, decision) {
+  let justification = null;
+  if (decision === 'KEEP') {
+    justification = prompt('KEEP 需要 justification:');
+    if (!justification) return;
+  }
+  try {
+    await fetchJSON(`/api/uar/decisions/${did}`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({decision, justification, modified_policies: []})
+    });
+    loadUARCampaigns(); loadSummary();
+  } catch(e) { alert('失败: ' + e.message); }
+}
+document.getElementById('u-camp').addEventListener('change', loadUARCampaigns);
+document.getElementById('u-dec').addEventListener('change', loadUARCampaigns);
+
+async function loadBG() {
+  try {
+    const d = await fetchJSON('/api/break-glass');
+    const tbody = document.querySelector('#tbl-bg tbody');
+    if (!d.items.length) {
+      tbody.innerHTML = '<tr><td colspan="10" class="empty">无</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.items.map(b => {
+      const stTag = {PENDING:'medium', ACTIVE:'critical', EXPIRED:'normal', REVOKED:'low'}[b.status] || 'normal';
+      const btn = b.status === 'ACTIVE'
+        ? `<button class="btn danger" onclick="revokeBG('${b.bg_id}')">REVOKE</button>`
+        : (b.status === 'PENDING'
+          ? `<button class="btn" onclick="approveBG('${b.bg_id}')">APPROVE</button>`
+          : `<span style="color:var(--text-dim);font-size:11px">${b.status}</span>`);
+      return `<tr>
+        <td class="mono">${b.bg_id}</td>
+        <td style="font-size:11px">${b.identity_name}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${b.requested_role.substring(0,40)}…</td>
+        <td>${b.duration_minutes}m</td>
+        <td style="font-size:11px;color:var(--text-dim)">${b.reason.substring(0,60)}…</td>
+        <td style="font-size:11px">${b.ticket_id}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${b.peer_approver || '—'}</td>
+        <td>${tag(b.status, stTag)}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${b.expires_at || '—'}</td>
+        <td>${btn}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+async function approveBG(bgid) {
+  const peer = prompt('Peer approver email:');
+  if (!peer) return;
+  try {
+    await fetchJSON(`/api/break-glass/${bgid}/approve`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({peer_approver: peer})
+    });
+    loadBG(); loadSummary();
+  } catch(e) { alert('失败: ' + e.message); }
+}
+async function revokeBG(bgid) {
+  try {
+    await fetchJSON(`/api/break-glass/${bgid}/revoke`, {method:'POST'});
+    loadBG(); loadSummary();
+  } catch(e) { alert('失败: ' + e.message); }
+}
+async function expireCheck() {
+  const r = await fetchJSON('/api/break-glass/expire-check', {method:'POST'});
+  alert(`已自动过期 ${r.expired_count} 个 session`);
+  loadBG(); loadSummary();
+}
+
+async function loadReport() {
+  const r = await fetchJSON('/api/report/soc2');
+  document.getElementById('report-result').textContent = JSON.stringify(r, null, 2);
+}
+async function reseed() {
+  if (!confirm('确定重置所有数据？')) return;
+  await fetchJSON('/api/admin/seed', {method:'POST'});
+  loadSummary();
+  alert('已重置');
+}
+
+loadSummary();
+loadFindings();
+</script>
+</body>
+</html>
