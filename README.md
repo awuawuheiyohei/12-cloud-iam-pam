@@ -120,7 +120,7 @@ pytest tests/ -v
 
 ## 📝 PRD 来源
 
-本项目基于 `/Users/jiangwenrui/Downloads/mass/Interview/Security_and_GRC_14_Projects_Plan/12_Cloud_IAM_PAM_Least_Privilege_Governance.md` 完整规划。
+本项目基于 `/Users/jiangwenrui/Downloads/mass/25-Interview/Security_and_GRC_14_Projects_Plan/12_Cloud_IAM_PAM_Least_Privilege_Governance.md` 完整规划。
 
 ## 📄 License
 
